@@ -113,7 +113,7 @@
       "name": "マッピング(map)",
       "category": "演算・計算",
       "is_expression": true,
-      "template": "map({{val}}), {{fromLow}}), {{fromHigh}}), {{toLow}}), {{toHigh}});",
+      "template": "map({{val}}, {{fromLow}}, {{fromHigh}}, {{toLow}}, {{toHigh}});",
       "params": [
         {"key": "val", "label": "値", "type": "slot", "default": "x"},
         {"key": "fromLow", "label": "元の下限", "type": "slot", "default": "0"},
