@@ -1,0 +1,123 @@
+﻿<Window x:Class="ArduinoBlockEditor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Arduino Block Editor"
+        Icon="/app.ico"
+        Height="750" Width="1200"
+        Loaded="Window_Loaded" 
+        KeyDown="Window_KeyDown"
+        Closing="Window_Closing"
+        Closed="Window_Closed">
+
+    <DockPanel>
+        <!-- メニューバー -->
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="ファイル(_F)">
+                <MenuItem Header="新規作成(_N)" Click="NewFile_Click" InputGestureText="Ctrl+N" />
+                <MenuItem Header="開く(_O)..." Click="OpenFile_Click" InputGestureText="Ctrl+O" />
+                <Separator />
+                <MenuItem Header="保存(_S)" Click="SaveFile_Click" InputGestureText="Ctrl+S" />
+                <MenuItem Header="名前を付けて保存..." Click="SaveFileAs_Click" />
+                <Separator />
+                <MenuItem Header="終了(_X)" Click="Exit_Click" />
+            </MenuItem>
+            <MenuItem Header="編集(_E)">
+                <MenuItem Header="元に戻す(_U)" Click="Undo_Click" InputGestureText="Ctrl+Z" />
+                <MenuItem Header="やり直し(_R)" Click="Redo_Click" InputGestureText="Ctrl+Y" />
+                <Separator />
+                <MenuItem Header="すべて消去" Click="ClearAll_Click" />
+            </MenuItem>
+        </Menu>
+
+        <!-- メイングリッド（幅調整機能付き） -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <!-- 0: ブロックパレット -->
+                <ColumnDefinition Width="260" MinWidth="150" />
+                <!-- 1: 分割スプリッター -->
+                <ColumnDefinition Width="Auto" />
+                <!-- 2: ワークスペース -->
+                <ColumnDefinition Width="*" MinWidth="300" />
+                <!-- 3: 分割スプリッター -->
+                <ColumnDefinition Width="Auto" />
+                <!-- 4: 生成コード -->
+                <ColumnDefinition Width="320" MinWidth="180" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ① ブロックパレット -->
+            <Border Grid.Column="0" Padding="5">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="■ ブロックパレット" FontWeight="Bold" Margin="0,0,0,5"/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,5">
+                        <TextBlock Text="カテゴリ: " VerticalAlignment="Center"/>
+                        <ComboBox x:Name="CatComboBox" Width="140" SelectionChanged="CatComboBox_SelectionChanged"/>
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="PaletteContainer" />
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- 分割スプリッター 1 -->
+            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" Background="#E0E0E0" Cursor="SizeWE" />
+
+            <!-- ② ワークスペース -->
+            <Grid Grid.Column="2" Margin="5">
+                <!-- ブロック配置用スクロールエリア -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="■ 初期化処理 (setup)" FontWeight="Bold" Margin="0,2,0,2"/>
+                        <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Padding="5" MinHeight="80" Margin="0,0,0,10">
+                            <StackPanel x:Name="SetupContainer" />
+                        </Border>
+
+                        <TextBlock Text="■ 繰り返し処理 (loop)" FontWeight="Bold" Margin="0,2,0,2"/>
+                        <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Padding="5" MinHeight="150" Margin="0,0,0,10">
+                            <StackPanel x:Name="LoopContainer" />
+                        </Border>
+
+                        <TextBlock Text="■ グローバル領域 (global scope)" FontWeight="Bold" Margin="0,2,0,2"/>
+                        <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Padding="5" MinHeight="80">
+                            <StackPanel x:Name="FuncContainer" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- 右下に浮くゴミ箱 (フローティング表示) -->
+                <Border x:Name="TrashBorder" 
+                        Background="#333333" 
+                        CornerRadius="4" 
+                        Padding="10,6" 
+                        HorizontalAlignment="Right" 
+                        VerticalAlignment="Bottom" 
+                        Margin="0,0,15,15"
+                        Panel.ZIndex="10">
+                    <TextBlock x:Name="TrashText" Text=" 🗑️ ここへドロップで削除 " Foreground="White" FontWeight="Bold" />
+                </Border>
+            </Grid>
+
+            <!-- 分割スプリッター 2 -->
+            <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Stretch" Background="#E0E0E0" Cursor="SizeWE" />
+
+            <!-- ③ 生成コード表示 -->
+            <Border Grid.Column="4" Padding="5">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,5">
+                        <Button DockPanel.Dock="Right" Content="コードコピー" Click="CopyCode_Click" Padding="5,1"/>
+                        <TextBlock Text="■ 生成コード" FontWeight="Bold" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <TextBox x:Name="CodeTextBox" 
+                             FontFamily="Consolas, Courier New" 
+                             FontSize="12" 
+                             AcceptsReturn="True" 
+                             IsReadOnly="True" 
+                             VerticalScrollBarVisibility="Auto" 
+                             HorizontalScrollBarVisibility="Auto" />
+                </DockPanel>
+            </Border>
+
+            <!-- ドラッグ追従用キャンバス -->
+            <Canvas x:Name="DragCanvas" Grid.ColumnSpan="5" IsHitTestVisible="False" />
+        </Grid>
+    </DockPanel>
+</Window>

@@ -1,0 +1,217 @@
+{
+  "blocks": [
+    {
+      "name": "ピンモード設定(pinMode)",
+      "category": "入出力・時間",
+      "is_expression": false,
+      "template": "pinMode({{pin}}, {{mode}}); ",
+      "params": [
+        { "key": "pin", "label": "ピン", "type": "input", "default": "13" },
+        { "key": "mode", "label": "モード", "type": "toggle", "options": ["OUTPUT", "INPUT", "INPUT_PULLUP"] }
+      ]
+    },
+    {
+      "name": "デジタル出力(digitalWrite)",
+      "category": "入出力・時間",
+      "is_expression": false,
+      "template": "digitalWrite({{pin}}, {{val}}); ",
+      "params": [
+        { "key": "pin", "label": "ピン", "type": "input", "default": "13" },
+        { "key": "val", "label": "出力", "type": "toggle", "options": ["HIGH", "LOW"] }
+      ]
+    },
+    {
+      "name": "デジタル入力(digitalRead)",
+      "category": "入出力・時間",
+      "is_expression": true,
+      "template": "digitalRead({{pin}})",
+      "params": [
+        { "key": "pin", "label": "ピン", "type": "input", "default": "2" }
+      ]
+    },
+    {
+      "name": "アナログ入力(analogRead)",
+      "category": "入出力・時間",
+      "is_expression": true,
+      "template": "analogRead({{pin}})",
+      "params": [
+        { "key": "pin", "label": "ピン", "type": "input", "default": "A0" }
+      ]
+    },
+    {
+      "name": "PWM出力(analogWrite)",
+      "category": "入出力・時間",
+      "is_expression": false,
+      "template": "analogWrite({{pin}}, {{val}}); ",
+      "params": [
+        { "key": "pin", "label": "ピン", "type": "input", "default": "3" },
+        { "key": "val", "label": "値(0-255)", "type": "slot", "default": "128" }
+      ]
+    },
+    {
+      "name": "待つ(delay)",
+      "category": "入出力・時間",
+      "is_expression": false,
+      "template": "delay({{ms}}); ",
+      "params": [
+        { "key": "ms", "label": "ミリ秒", "type": "slot", "default": "1000" }
+      ]
+    },
+
+    {
+      "name": "もし〜なら(if)",
+      "category": "制御構文",
+      "is_expression": false,
+      "template": "if ({{cond}}) {",
+      "params": [
+        { "key": "cond", "label": "条件", "type": "slot", "default": "true" }
+      ]
+    },
+    {
+      "name": "そうでないなら(else)",
+      "category": "制御構文",
+      "is_expression": false,
+      "template": "} else {",
+      "params": []
+    },
+    {
+      "name": "ブロックの終わり",
+      "category": "制御構文",
+      "is_expression": false,
+      "template": "}",
+      "params": []
+    },
+    {
+      "name": "繰り返し(for)",
+      "category": "制御構文",
+      "is_expression": false,
+      "template": "for (int {{var}} = 0; {{var}} < {{count}}; {{var}}++) {",
+      "params": [
+        { "key": "var", "label": "変数", "type": "input", "default": "i" },
+        { "key": "count", "label": "回数", "type": "slot", "default": "10" }
+      ]
+    },
+    {
+      "name": "条件繰り返し(while)",
+      "category": "制御構文",
+      "is_expression": false,
+      "template": "while ({{cond}}) {",
+      "params": [
+        { "key": "cond", "label": "条件", "type": "slot", "default": "true" }
+      ]
+    },
+    {
+      "name": "結果を報告し戻る(return)",
+      "category": "制御構文",
+      "is_expression": false,
+      "template": "return {{cond}};",
+      "params": [
+        { "key": "cond", "label": "報告", "type": "slot", "default": "" }
+      ]
+    },
+    {
+      "name": "マッピング(map)",
+      "category": "演算・計算",
+      "is_expression": true,
+      "template": "map({{val}}), {{fromLow}}), {{fromHigh}}), {{toLow}}), {{toHigh}});",
+      "params": [
+        {"key": "val", "label": "値", "type": "slot", "default": "x"},
+        {"key": "fromLow", "label": "元の下限", "type": "slot", "default": "0"},
+        {"key": "fromHigh", "label": "元の上限", "type": "slot", "default": "1023"},
+        {"key": "toLow", "label": "変換後の下限", "type": "slot", "default": "0"},
+        {"key": "toHigh", "label": "変換後の上限", "type": "slot", "default": "255"}
+      ]
+    },
+    {
+      "name": "比較",
+      "category": "演算・計算",
+      "is_expression": true,
+      "template": "{{a}} {{op}} {{b}}",
+      "params": [
+        { "key": "a", "label": "", "type": "slot", "default": "0" },
+        { "key": "op", "label": "", "type": "toggle", "options": ["==", "!=", "<", ">", "<=", ">=","||","&&"] },
+        { "key": "b", "label": "", "type": "slot", "default": "0" }
+      ]
+    },
+    {
+      "name": "否定 (NOT)",
+      "category": "演算・計算",
+      "is_expression": true,
+      "template": "!({{cond}})",
+      "params": [
+        { "key": "cond", "label": "条件", "type": "slot", "default": "true" }
+      ]
+    },
+    {
+      "name": "四則演算",
+      "category": "演算・計算",
+      "is_expression": true,
+      "template": "{{a}} {{op}} {{b}}",
+      "params": [
+        { "key": "a", "label": "", "type": "slot", "default": "1" },
+        { "key": "op", "label": "", "type": "toggle", "options": ["+", "-", "*", "/"] },
+        { "key": "b", "label": "", "type": "slot", "default": "1" }
+      ]
+    },
+
+    {
+      "name": "変数を宣言",
+      "category": "変数・代入",
+      "is_expression": false,
+      "is_var_def": true,
+      "template": "{{type}} {{name}}; ",
+      "params": [
+        { "key": "type", "label": "型", "type": "toggle", "options": ["int", "float", "String", "boolean", "long"] },
+        { "key": "name", "label": "名前", "type": "input", "default": "x" }
+      ]
+    },
+
+    {
+      "name": "変数を宣言し代入",
+      "category": "変数・代入",
+      "is_expression": false,
+      "is_var_def": true,
+      "template": "{{type}} {{name}} ={{number}}; ",
+      "params": [
+        { "key": "type", "label": "型", "type": "toggle", "options": ["int", "float", "String", "boolean", "long"] },
+        { "key": "name", "label": "名前", "type": "input", "default": "x" },
+        { "key": "number", "label": "数", "type": "input", "default": "0" }
+      ]
+    },
+
+
+    {
+      "name": "シリアル通信開始",
+      "category": "シリアル通信",
+      "is_expression": false,
+      "template": "Serial.begin({{rate}}); ",
+      "params": [
+        { "key": "rate", "label": "通信速度", "type": "toggle", "options": ["9600", "115200"] }
+      ]
+    },
+
+    {
+      "name": "シリアル出力(改行あり)",
+      "category": "シリアル通信",
+      "is_expression": false,
+      "template": "Serial.println({{val}}); ",
+      "params": [
+        { "key": "val", "label": "値", "type": "slot", "default": "\"Hello\"" }
+      ]
+    },
+
+    {
+      "name": "コメント (メモ)",
+      "category": "その他",
+      "template": "// {{text}}",
+      "params": [
+        {
+          "key": "text",
+          "type": "input",
+          "label": "内容",
+          "default": "ここにメモを入力"
+        }
+      ]
+    }
+  ]
+}

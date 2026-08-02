@@ -1,0 +1,89 @@
+{
+  "blocks": [
+    {
+      "name": "キーボード有効化",
+      "category": "キーボード",
+      "template": "Keyboard.begin();"
+    },
+    {
+      "name": "キーボード終了",
+      "category": "キーボード",
+      "template": "Keyboard.end();"
+    },
+    {
+      "name": "文字入力",
+      "category": "キーボード",
+      "template": "Keyboard.print({{val}});",
+      "params": [
+        {
+          "key": "val",
+          "label": "入力",
+          "type": "slot",
+          "default": ""
+        }
+      ]
+    },
+    {
+      "name": "決定入力",
+      "category": "キーボード",
+      "template": "Keyboard.println({{val}});",
+      "params": [
+        {
+          "key": "val",
+          "label": "入力",
+          "type": "slot",
+          "default": ""
+        }
+      ]
+    },
+    {
+      "name": "単発押し",
+      "category": "キーボード",
+      "template": "Keyboard.write({{val}});",
+      "params": [
+        {
+          "key": "val",
+          "label": "入力",
+          "type": "slot",
+          "default": ""
+        }
+      ]
+    },
+    {
+      "name": "長押し",
+      "category": "キーボード",
+      "template": "Keyboard.press({{val}});",
+      "params": [
+        {
+          "key": "val",
+          "label": "入力",
+          "type": "slot",
+          "default": ""
+        }
+      ]
+    },
+    {
+      "name": "離す",
+      "category": "キーボード",
+      "template": "Keyboard.release({{val}});",
+      "params": [
+        {
+          "key": "val",
+          "label": "入力",
+          "type": "slot",
+          "default": ""
+        }
+      ]
+    },
+    {
+      "name": "すべて離す",
+      "category": "キーボード",
+      "template": "Keyboard.releaseAll();"
+    },
+    {
+      "name": "Keyboard有効化",
+      "category": "キーボード",
+      "template": "#include <Keyboard.h>"
+    }
+  ]
+}
