@@ -1,7 +1,6 @@
 MIT License
 
-Copyright (c) 2026 PhonePigman
-([https://github.com/PhonePigman/ArduinoBlockEditor](https://github.com/PhonePigman/ArduinoBlockEditor))
+Copyright (c) 2026 PhonePigman https://github.com/PhonePigman/ArduinoBlockEditor
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
