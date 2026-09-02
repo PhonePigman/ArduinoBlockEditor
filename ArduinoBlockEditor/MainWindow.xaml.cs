@@ -4,29 +4,31 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
-using Python.Runtime;
 
 namespace ArduinoBlockEditor
 {
     public partial class MainWindow : Window
     {
-        private dynamic pyModel;
+        private ArduinoBlockModel blockModel;
         private UIElement draggingElement = null;
-        private dynamic draggingConfig = null;
-        private readonly List<dynamic> draggingBlockGroup = new();
+        private JsonNode draggingConfig = null;
+        private readonly List<JsonNode> draggingBlockGroup = new();
         private bool isPaletteDrag = false;
 
         // ドラッグ元情報
         private string sourceSection = null;
         private int sourceIndex = -1;
-        private dynamic sourceSlotRef = null;
+        private JsonObject sourceSlotRef = null;
         private string sourceSlotKey = null;
-        private dynamic sourceSlotDefault = null;
+        private string sourceSlotDefault = null;
 
         // ドロップホバー（ハイライト）用変数
         private DropTarget lastHoverTarget = null;
@@ -41,11 +43,11 @@ namespace ArduinoBlockEditor
         private class DropTarget
         {
             public string Type { get; set; } = "";
-            public dynamic TargetList { get; set; } = null;
+            public List<JsonNode> TargetList { get; set; } = null;
             public StackPanel ContainerPanel { get; set; } = null;
             public int CalculatedIndex { get; set; }
 
-            public dynamic SlotRef { get; set; } = null;
+            public JsonObject SlotRef { get; set; } = null;
             public string SlotKey { get; set; } = "";
             public FrameworkElement Element { get; set; } = null;
         }
@@ -68,57 +70,29 @@ namespace ArduinoBlockEditor
             InitializeComponent();
         }
 
-        private PyObject ToPyObj(dynamic val)
-        {
-            if (val is PyObject pyObj) return pyObj;
-            if (val == null) return new PyString("");
-
-            if (val is string strVal) return new PyString(strVal);
-            if (val is bool boolVal) return PyObject.FromManagedObject(boolVal);
-            if (val is int intVal) return new PyInt(intVal);
-            if (val is long longVal) return new PyInt(longVal);
-            if (val is double dblVal) return new PyFloat(dblVal);
-
-            return new PyString(val.ToString() ?? "");
-        }
-
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            InitPythonEngine();
+            InitModel();
             RefreshAll();
         }
 
-        private void InitPythonEngine()
+        private void InitModel()
         {
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string pythonHome = Path.Combine(baseDir, "python_embed");
+            blockModel = new ArduinoBlockModel();
+            var (success, msg) = blockModel.LoadMods();
 
-            Runtime.PythonDLL = Path.Combine(pythonHome, "python311.dll");
-            PythonEngine.PythonHome = pythonHome;
-            PythonEngine.Initialize();
-
-            using (Py.GIL())
+            if (!success)
             {
-                dynamic sys = Py.Import("sys");
-                sys.path.append(baseDir);
+                MessageBox.Show(msg, "ファイルが見つかりません", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
 
-                dynamic arduinoModelModule = Py.Import("arduino_model");
-                pyModel = arduinoModelModule.ArduinoBlockModel();
-
-                var result = pyModel.load_mods();
-                bool success = result[0];
-                string msg = result[1]?.ToString() ?? "";
-
-                if (!success)
-                {
-                    MessageBox.Show(msg, "ファイルが見つかりません", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-
-                CatComboBox.Items.Clear();
-                foreach (var cat in pyModel.categories)
-                {
-                    CatComboBox.Items.Add(cat.ToString());
-                }
+            CatComboBox.Items.Clear();
+            foreach (var cat in blockModel.Categories)
+            {
+                CatComboBox.Items.Add(cat);
+            }
+            if (CatComboBox.Items.Count > 0)
+            {
                 CatComboBox.SelectedIndex = 0;
             }
         }
@@ -132,14 +106,11 @@ namespace ArduinoBlockEditor
 
         private void RefreshAll()
         {
-            if (pyModel == null) return;
+            if (blockModel == null) return;
 
-            using (Py.GIL())
-            {
-                RenderPalette();
-                RenderWorkspace();
-                UpdateCode();
-            }
+            RenderPalette();
+            RenderWorkspace();
+            UpdateCode();
         }
 
         // ==========================================
@@ -147,91 +118,80 @@ namespace ArduinoBlockEditor
         // ==========================================
         private void RenderPalette()
         {
-            if (pyModel == null) return;
+            if (blockModel == null) return;
 
             PaletteContainer.Children.Clear();
             string selectedCat = CatComboBox.SelectedItem?.ToString() ?? "すべて";
 
-            using (Py.GIL())
+            List<string> displayCats = new List<string>();
+            if (selectedCat == "すべて")
             {
-                dynamic json = Py.Import("json");
+                foreach (var c in blockModel.Categories)
+                    if (c != "すべて") displayCats.Add(c);
+            }
+            else
+            {
+                displayCats.Add(selectedCat);
+            }
 
-                List<string> displayCats = new List<string>();
-                if (selectedCat == "すべて")
+            List<string> declaredVars = blockModel.GetDeclaredVariables();
+
+            foreach (var cat in displayCats)
+            {
+                List<JsonNode> allCatBlocks = new List<JsonNode>();
+                foreach (var b in blockModel.BlockConfigs)
                 {
-                    foreach (var c in pyModel.categories)
-                        if (c.ToString() != "すべて") displayCats.Add(c.ToString());
+                    if ((b["category"]?.ToString() ?? "その他") == cat)
+                        allCatBlocks.Add(b);
                 }
-                else
+
+                if (cat == "変数・代入" || cat == "変数")
                 {
-                    displayCats.Add(selectedCat);
+                    foreach (var vname in declaredVars)
+                    {
+                        var varRefConfig = JsonNode.Parse($@"{{
+                            ""name"": ""変数 {vname}"",
+                            ""category"": ""{cat}"",
+                            ""is_expression"": true,
+                            ""template"": ""{vname}"",
+                            ""params"": []
+                        }}");
+                        allCatBlocks.Add(varRefConfig);
+
+                        var varAssignConfig = JsonNode.Parse($@"{{
+                            ""name"": ""{vname} に代入"",
+                            ""category"": ""{cat}"",
+                            ""is_expression"": false,
+                            ""template"": ""{vname} = {{{{val}}}}; "",
+                            ""params"": [{{""key"": ""val"", ""label"": ""="", ""type"": ""slot"", ""default"": ""0""}}]
+                        }}");
+                        allCatBlocks.Add(varAssignConfig);
+                    }
                 }
 
-                dynamic declaredVars = pyModel.get_declared_variables();
+                if (allCatBlocks.Count == 0) continue;
 
-                foreach (var cat in displayCats)
+                TextBlock header = new TextBlock
                 {
-                    List<dynamic> allCatBlocks = new List<dynamic>();
-                    foreach (var b in pyModel.block_configs)
-                    {
-                        if (b.get("category", "その他").ToString() == cat)
-                            allCatBlocks.Add(b);
-                    }
+                    Text = $"■ {cat}",
+                    FontWeight = FontWeights.Bold,
+                    Foreground = GetCategoryBrush(cat),
+                    Margin = new Thickness(2, 8, 2, 2)
+                };
+                PaletteContainer.Children.Add(header);
 
-                    if (cat == "変数・代入" || cat == "変数")
-                    {
-                        foreach (var vnameObj in declaredVars)
-                        {
-                            string vname = vnameObj.ToString();
-
-                            dynamic varRefConfig = json.loads($@"{{
-                                ""name"": ""変数 {vname}"",
-                                ""category"": ""{cat}"",
-                                ""is_expression"": true,
-                                ""template"": ""{vname}"",
-                                ""params"": []
-                            }}");
-                            allCatBlocks.Add(varRefConfig);
-
-                            dynamic varAssignConfig = json.loads($@"{{
-                                ""name"": ""{vname} に代入"",
-                                ""category"": ""{cat}"",
-                                ""is_expression"": false,
-                                ""template"": ""{vname} = {{{{val}}}}; "",
-                                ""params"": [{{""key"": ""val"", ""label"": ""="", ""type"": ""slot"", ""default"": ""0""}}]
-                            }}");
-                            allCatBlocks.Add(varAssignConfig);
-                        }
-                    }
-
-                    if (allCatBlocks.Count == 0) continue;
-
-                    TextBlock header = new TextBlock
-                    {
-                        Text = $"■ {cat}",
-                        FontWeight = FontWeights.Bold,
-                        Foreground = GetCategoryBrush(cat),
-                        Margin = new Thickness(2, 8, 2, 2)
-                    };
-                    PaletteContainer.Children.Add(header);
-
-                    foreach (var config in allCatBlocks)
-                    {
-                        Border blockUI = CreatePaletteBlockUI(config, cat);
-                        PaletteContainer.Children.Add(blockUI);
-                    }
+                foreach (var config in allCatBlocks)
+                {
+                    Border blockUI = CreatePaletteBlockUI(config, cat);
+                    PaletteContainer.Children.Add(blockUI);
                 }
             }
         }
 
-        private Border CreatePaletteBlockUI(dynamic config, string category)
+        private Border CreatePaletteBlockUI(JsonNode config, string category)
         {
-            string name = config["name"].ToString();
-            bool isExpr = false;
-            using (Py.GIL())
-            {
-                isExpr = ((PyObject)config.get("is_expression", false)).IsTrue();
-            }
+            string name = config["name"]?.ToString() ?? "";
+            bool isExpr = config["is_expression"]?.GetValue<bool>() ?? false;
 
             Border border = new Border
             {
@@ -257,12 +217,10 @@ namespace ArduinoBlockEditor
                 isPaletteDrag = true;
                 draggingConfig = config;
                 draggingBlockGroup.Clear();
-                using (Py.GIL())
+
+                if (blockModel != null)
                 {
-                    if (pyModel != null)
-                    {
-                        draggingBlockGroup.Add(pyModel.create_default_block_data(config));
-                    }
+                    draggingBlockGroup.Add(blockModel.CreateDefaultBlockData(config));
                 }
                 StartCustomDrag(CreateBlockGroupPreviewUI(draggingBlockGroup), e);
             };
@@ -275,22 +233,19 @@ namespace ArduinoBlockEditor
         // ==========================================
         private void RenderWorkspace()
         {
-            if (pyModel == null) return;
+            if (blockModel == null) return;
 
             SetupContainer.Children.Clear();
             LoopContainer.Children.Clear();
             FuncContainer.Children.Clear();
             activeDropTargets.Clear();
 
-            using (Py.GIL())
-            {
-                RenderSection(SetupContainer, pyModel.setup_blocks, "setup");
-                RenderSection(LoopContainer, pyModel.loop_blocks, "loop");
-                RenderSection(FuncContainer, pyModel.func_blocks, "func");
-            }
+            RenderSection(SetupContainer, blockModel.SetupBlocks, "setup");
+            RenderSection(LoopContainer, blockModel.LoopBlocks, "loop");
+            RenderSection(FuncContainer, blockModel.FuncBlocks, "func");
         }
 
-        private void RenderSection(StackPanel container, dynamic blockList, string section)
+        private void RenderSection(StackPanel container, List<JsonNode> blockList, string section)
         {
             activeDropTargets.Add(new DropTarget
             {
@@ -305,15 +260,9 @@ namespace ArduinoBlockEditor
             foreach (var block in blockList)
             {
                 int currentIndex = idx;
-                string template = "";
-                string name = "";
-
-                using (Py.GIL())
-                {
-                    dynamic config = block["config"];
-                    template = config.get("template", "").ToString().Trim();
-                    name = config.get("name", "").ToString();
-                }
+                JsonNode config = block["config"];
+                string template = config?["template"]?.ToString().Trim() ?? "";
+                string name = config?["name"]?.ToString() ?? "";
 
                 if (template.StartsWith("}") || name.Contains("終わり") || name.Contains("そうでない"))
                 {
@@ -332,21 +281,14 @@ namespace ArduinoBlockEditor
             }
         }
 
-        private Border CreateWorkspaceBlockUI(dynamic block, string section, int idx, bool isNested = false, dynamic slotRef = null, string slotKey = null, dynamic defaultVal = null, int indentLevel = 0)
+        private Border CreateWorkspaceBlockUI(JsonNode block, string section, int idx, bool isNested = false, JsonObject slotRef = null, string slotKey = null, string defaultVal = null, int indentLevel = 0)
         {
-            dynamic config = block["config"];
-            dynamic values = block["values"];
+            JsonNode config = block["config"];
+            JsonObject values = block["values"] as JsonObject ?? new JsonObject();
 
-            string category = "その他";
-            string name = "";
-            bool isVarDef = false;
-
-            using (Py.GIL())
-            {
-                category = config.get("category", "その他").ToString();
-                name = config.get("name", "").ToString();
-                isVarDef = ((PyObject)config.get("is_var_def", false)).IsTrue();
-            }
+            string category = config?["category"]?.ToString() ?? "その他";
+            string name = config?["name"]?.ToString() ?? "";
+            bool isVarDef = config?["is_var_def"]?.GetValue<bool>() ?? false;
 
             SolidColorBrush catBrush = GetCategoryBrush(category);
 
@@ -384,12 +326,9 @@ namespace ArduinoBlockEditor
                     sourceSlotDefault = defaultVal;
                     draggingBlockGroup.Add(block);
 
-                    using (Py.GIL())
+                    if (slotRef != null && slotKey != null)
                     {
-                        if (slotRef != null && slotKey != null)
-                        {
-                            slotRef[slotKey] = ToPyObj(defaultVal);
-                        }
+                        slotRef[slotKey] = defaultVal ?? "";
                     }
                 }
                 else
@@ -398,16 +337,12 @@ namespace ArduinoBlockEditor
                     sourceIndex = idx;
                     sourceSlotRef = null;
 
-                    using (Py.GIL())
+                    if (blockModel != null)
                     {
-                        if (pyModel != null)
+                        List<JsonNode> srcList = GetSectionList(sourceSection);
+                        for (int i = sourceIndex; i < srcList.Count; i++)
                         {
-                            dynamic srcList = pyModel.GetAttr($"{sourceSection}_blocks");
-                            int count = (int)srcList.__len__();
-                            for (int i = sourceIndex; i < count; i++)
-                            {
-                                draggingBlockGroup.Add(srcList[i]);
-                            }
+                            draggingBlockGroup.Add(srcList[i]);
                         }
                     }
                 }
@@ -427,23 +362,14 @@ namespace ArduinoBlockEditor
             };
             sp.Children.Add(title);
 
-            bool hasParams = false;
-            using (Py.GIL()) { hasParams = ((PyObject)config.get("params", false)).IsTrue(); }
-
-            if (hasParams)
+            if (config?["params"] is JsonArray paramsArr && paramsArr.Count > 0)
             {
-                foreach (var p in config["params"])
+                foreach (var p in paramsArr)
                 {
-                    string key = p["key"].ToString();
-                    string pType = p["type"].ToString();
-                    string label = "";
-                    dynamic val = "";
-
-                    using (Py.GIL())
-                    {
-                        label = p.get("label", "").ToString();
-                        val = values.get(key, p.get("default", ""));
-                    }
+                    string key = p["key"]?.ToString();
+                    string pType = p["type"]?.ToString();
+                    string label = p["label"]?.ToString() ?? "";
+                    JsonNode valNode = values[key] ?? p["default"]?.ToString() ?? "";
 
                     if (!string.IsNullOrEmpty(label))
                     {
@@ -458,10 +384,11 @@ namespace ArduinoBlockEditor
 
                     if (pType == "input")
                     {
+                        string valStr = valNode.ToString();
                         TextBox tb = new TextBox
                         {
-                            Text = val.ToString(),
-                            Width = Math.Max(35, val.ToString().Length * 9 + 15),
+                            Text = valStr,
+                            Width = Math.Max(35, valStr.Length * 9 + 15),
                             Margin = new Thickness(2, 0, 2, 0),
                             VerticalAlignment = VerticalAlignment.Center,
                             Background = Brushes.White,
@@ -472,12 +399,9 @@ namespace ArduinoBlockEditor
                         tb.TextChanged += (s, e) =>
                         {
                             tb.Width = Math.Max(35, tb.Text.Length * 9 + 15);
-                            using (Py.GIL())
-                            {
-                                values[currentKey] = ToPyObj(tb.Text);
-                                if (pyModel != null) pyModel.save_state();
-                                if (isVarDef && currentKey == "name") RenderPalette();
-                            }
+                            values[currentKey] = tb.Text;
+                            if (blockModel != null) blockModel.SaveState();
+                            if (isVarDef && currentKey == "name") RenderPalette();
                             UpdateCode();
                         };
                         sp.Children.Add(tb);
@@ -485,18 +409,18 @@ namespace ArduinoBlockEditor
                     else if (pType == "toggle")
                     {
                         ComboBox cb = new ComboBox { Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center };
-                        foreach (var opt in p["options"]) cb.Items.Add(opt.ToString());
-                        cb.SelectedItem = val.ToString();
+                        if (p["options"] is JsonArray optionsArr)
+                        {
+                            foreach (var opt in optionsArr) cb.Items.Add(opt.ToString());
+                        }
+                        cb.SelectedItem = valNode.ToString();
 
                         string currentKey = key;
                         cb.SelectionChanged += (s, e) =>
                         {
                             if (cb.SelectedItem == null) return;
-                            using (Py.GIL())
-                            {
-                                values[currentKey] = ToPyObj(cb.SelectedItem.ToString());
-                                if (pyModel != null) pyModel.save_state();
-                            }
+                            values[currentKey] = cb.SelectedItem.ToString();
+                            if (blockModel != null) blockModel.SaveState();
                             UpdateCode();
                         };
                         sp.Children.Add(cb);
@@ -516,31 +440,22 @@ namespace ArduinoBlockEditor
 
                         activeDropTargets.Add(new DropTarget { Type = "slot", SlotRef = values, SlotKey = key, Element = slotBorder });
 
-                        bool isChildBlock = false;
-                        using (Py.GIL())
-                        {
-                            dynamic builtins = Py.Import("builtins");
-                            isChildBlock = (builtins.type(val).__name__.ToString() == "dict");
-                        }
+                        bool isChildBlock = (valNode is JsonObject);
 
                         if (isChildBlock)
                         {
                             StackPanel slotContent = new StackPanel { Orientation = Orientation.Horizontal };
-                            dynamic defVal = "";
-                            using (Py.GIL()) { defVal = p.get("default", ""); }
+                            string defVal = p["default"]?.ToString() ?? "";
 
-                            Border childBlockUI = CreateWorkspaceBlockUI(val, section, idx, isNested: true, slotRef: values, slotKey: key, defaultVal: defVal);
+                            Border childBlockUI = CreateWorkspaceBlockUI(valNode, section, idx, isNested: true, slotRef: values, slotKey: key, defaultVal: defVal);
                             slotContent.Children.Add(childBlockUI);
 
                             Button clearBtn = new Button { Content = "✕", Background = Brushes.DarkRed, Foreground = Brushes.White, FontSize = 10, Width = 16, Height = 16, Margin = new Thickness(2, 0, 0, 0), Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
                             string currentKey = key;
                             clearBtn.Click += (s, e) =>
                             {
-                                using (Py.GIL())
-                                {
-                                    values[currentKey] = ToPyObj(defVal);
-                                    if (pyModel != null) pyModel.save_state();
-                                }
+                                values[currentKey] = defVal;
+                                if (blockModel != null) blockModel.SaveState();
                                 RefreshAll();
                             };
                             slotContent.Children.Add(clearBtn);
@@ -548,10 +463,11 @@ namespace ArduinoBlockEditor
                         }
                         else
                         {
+                            string valStr = valNode?.ToString() ?? "";
                             TextBox slotTb = new TextBox
                             {
-                                Text = val.ToString(),
-                                Width = Math.Max(30, val.ToString().Length * 8 + 10),
+                                Text = valStr,
+                                Width = Math.Max(30, valStr.Length * 8 + 10),
                                 VerticalAlignment = VerticalAlignment.Center,
                                 Background = Brushes.Transparent,
                                 BorderThickness = new Thickness(0)
@@ -560,11 +476,8 @@ namespace ArduinoBlockEditor
                             slotTb.TextChanged += (s, e) =>
                             {
                                 slotTb.Width = Math.Max(30, slotTb.Text.Length * 8 + 10);
-                                using (Py.GIL())
-                                {
-                                    values[currentKey] = ToPyObj(slotTb.Text);
-                                    if (pyModel != null) pyModel.save_state();
-                                }
+                                values[currentKey] = slotTb.Text;
+                                if (blockModel != null) blockModel.SaveState();
                                 UpdateCode();
                             };
                             slotBorder.Child = slotTb;
@@ -590,14 +503,11 @@ namespace ArduinoBlockEditor
                 };
                 delBtn.Click += (s, e) =>
                 {
-                    using (Py.GIL())
+                    if (blockModel != null)
                     {
-                        if (pyModel != null)
-                        {
-                            dynamic targetList = pyModel.GetAttr($"{section}_blocks");
-                            targetList.pop(idx);
-                            pyModel.save_state();
-                        }
+                        List<JsonNode> targetList = GetSectionList(section);
+                        targetList.RemoveAt(idx);
+                        blockModel.SaveState();
                     }
                     RefreshAll();
                 };
@@ -616,30 +526,38 @@ namespace ArduinoBlockEditor
             return border;
         }
 
-        private UIElement CreateBlockGroupPreviewUI(List<dynamic> blocks)
+        private List<JsonNode> GetSectionList(string section)
+        {
+            return section switch
+            {
+                "setup" => blockModel.SetupBlocks,
+                "loop" => blockModel.LoopBlocks,
+                "func" => blockModel.FuncBlocks,
+                _ => null
+            };
+        }
+
+        private UIElement CreateBlockGroupPreviewUI(List<JsonNode> blocks)
         {
             StackPanel groupPanel = new StackPanel { Orientation = Orientation.Vertical, Opacity = 0.85 };
 
-            using (Py.GIL())
+            foreach (var b in blocks)
             {
-                foreach (var b in blocks)
-                {
-                    dynamic config = b["config"];
-                    string name = config.get("name", "").ToString();
-                    string category = config.get("category", "その他").ToString();
+                JsonNode config = b["config"];
+                string name = config?["name"]?.ToString() ?? "";
+                string category = config?["category"]?.ToString() ?? "その他";
 
-                    Border bUI = new Border
-                    {
-                        Background = GetCategoryBrush(category),
-                        BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#66FFFFFF")),
-                        BorderThickness = new Thickness(1),
-                        CornerRadius = new CornerRadius(3),
-                        Margin = new Thickness(1),
-                        Padding = new Thickness(6, 3, 6, 3),
-                        Child = new TextBlock { Text = name, Foreground = Brushes.White, FontWeight = FontWeights.Bold }
-                    };
-                    groupPanel.Children.Add(bUI);
-                }
+                Border bUI = new Border
+                {
+                    Background = GetCategoryBrush(category),
+                    BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#66FFFFFF")),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(3),
+                    Margin = new Thickness(1),
+                    Padding = new Thickness(6, 3, 6, 3),
+                    Child = new TextBlock { Text = name, Foreground = Brushes.White, FontWeight = FontWeights.Bold }
+                };
+                groupPanel.Children.Add(bUI);
             }
             return groupPanel;
         }
@@ -781,72 +699,75 @@ namespace ArduinoBlockEditor
 
             ClearHoverHighlight();
 
-            using (Py.GIL())
+            if (isOverTrash)
             {
-                if (isOverTrash)
+                if (!isPaletteDrag && sourceSection != null && sourceIndex >= 0 && blockModel != null)
                 {
-                    if (!isPaletteDrag && sourceSection != null && sourceIndex >= 0 && pyModel != null)
+                    List<JsonNode> srcList = GetSectionList(sourceSection);
+                    int removeCount = draggingBlockGroup.Count;
+                    for (int i = 0; i < removeCount; i++)
                     {
-                        dynamic srcList = pyModel.GetAttr($"{sourceSection}_blocks");
+                        if (sourceIndex < srcList.Count)
+                        {
+                            srcList.RemoveAt(sourceIndex);
+                        }
+                    }
+                    blockModel.SaveState();
+                }
+            }
+            else
+            {
+                DropTarget target = ResolveDropTarget(mousePosWindow);
+                if (target != null)
+                {
+                    if (!isPaletteDrag && sourceSection != null && sourceIndex >= 0 && blockModel != null)
+                    {
+                        List<JsonNode> srcList = GetSectionList(sourceSection);
+                        bool isSameSection = (target.Type == "line" && target.TargetList == srcList);
+                        int targetIdx = target.CalculatedIndex;
                         int removeCount = draggingBlockGroup.Count;
+
                         for (int i = 0; i < removeCount; i++)
                         {
-                            srcList.pop(sourceIndex);
+                            if (sourceIndex < srcList.Count)
+                            {
+                                srcList.RemoveAt(sourceIndex);
+                            }
                         }
-                        pyModel.save_state();
+
+                        if (isSameSection && targetIdx > sourceIndex)
+                        {
+                            targetIdx -= removeCount;
+                            targetIdx = Math.Max(0, targetIdx);
+                        }
+                        target.CalculatedIndex = targetIdx;
                     }
+
+                    if (target.Type == "slot" && target.SlotRef != null && target.SlotKey != null)
+                    {
+                        if (draggingBlockGroup.Count > 0)
+                        {
+                            target.SlotRef[target.SlotKey] = draggingBlockGroup[0].DeepClone();
+                        }
+                    }
+                    else if (target.Type == "line" && target.TargetList != null)
+                    {
+                        List<JsonNode> destList = target.TargetList;
+                        int insertIdx = Math.Max(0, Math.Min(target.CalculatedIndex, destList.Count));
+
+                        for (int i = 0; i < draggingBlockGroup.Count; i++)
+                        {
+                            destList.Insert(insertIdx + i, draggingBlockGroup[i].DeepClone());
+                        }
+                    }
+
+                    if (blockModel != null) blockModel.SaveState();
                 }
                 else
                 {
-                    DropTarget target = ResolveDropTarget(mousePosWindow);
-                    if (target != null)
+                    if (sourceSlotRef != null && sourceSlotKey != null && draggingBlockGroup.Count > 0)
                     {
-                        if (!isPaletteDrag && sourceSection != null && sourceIndex >= 0 && pyModel != null)
-                        {
-                            dynamic srcList = pyModel.GetAttr($"{sourceSection}_blocks");
-                            bool isSameSection = (target.Type == "line" && target.TargetList == srcList);
-                            int targetIdx = target.CalculatedIndex;
-                            int removeCount = draggingBlockGroup.Count;
-
-                            for (int i = 0; i < removeCount; i++)
-                            {
-                                srcList.pop(sourceIndex);
-                            }
-
-                            if (isSameSection && targetIdx > sourceIndex)
-                            {
-                                targetIdx -= removeCount;
-                                targetIdx = Math.Max(0, targetIdx);
-                            }
-                            target.CalculatedIndex = targetIdx;
-                        }
-
-                        if (target.Type == "slot" && target.SlotRef != null && target.SlotKey != null)
-                        {
-                            if (draggingBlockGroup.Count > 0)
-                            {
-                                target.SlotRef[target.SlotKey] = ToPyObj(draggingBlockGroup[0]);
-                            }
-                        }
-                        else if (target.Type == "line" && target.TargetList != null)
-                        {
-                            dynamic destList = target.TargetList;
-                            int insertIdx = Math.Max(0, Math.Min(target.CalculatedIndex, (int)destList.__len__()));
-
-                            for (int i = 0; i < draggingBlockGroup.Count; i++)
-                            {
-                                destList.insert(insertIdx + i, ToPyObj(draggingBlockGroup[i]));
-                            }
-                        }
-
-                        if (pyModel != null) pyModel.save_state();
-                    }
-                    else
-                    {
-                        if (sourceSlotRef != null && sourceSlotKey != null && draggingBlockGroup.Count > 0)
-                        {
-                            sourceSlotRef[sourceSlotKey] = ToPyObj(draggingBlockGroup[0]);
-                        }
+                        sourceSlotRef[sourceSlotKey] = draggingBlockGroup[0].DeepClone();
                     }
                 }
             }
@@ -917,17 +838,13 @@ namespace ArduinoBlockEditor
         // ==========================================
         private void UpdateCode()
         {
-            if (pyModel == null) return;
-
-            using (Py.GIL())
-            {
-                CodeTextBox.Text = pyModel.generate_arduino_code().ToString();
-            }
+            if (blockModel == null) return;
+            CodeTextBox.Text = blockModel.GenerateArduinoCode();
         }
 
         private void CatComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => RenderPalette();
-        private void Undo_Click(object sender, RoutedEventArgs e) { using (Py.GIL()) { if (pyModel != null && (bool)pyModel.undo()) RefreshAll(); } }
-        private void Redo_Click(object sender, RoutedEventArgs e) { using (Py.GIL()) { if (pyModel != null && (bool)pyModel.redo()) RefreshAll(); } }
+        private void Undo_Click(object sender, RoutedEventArgs e) { if (blockModel != null && blockModel.Undo()) RefreshAll(); }
+        private void Redo_Click(object sender, RoutedEventArgs e) { if (blockModel != null && blockModel.Redo()) RefreshAll(); }
         private void ClearAll_Click(object sender, RoutedEventArgs e)
         {
             MessageBoxResult result = MessageBox.Show(
@@ -939,14 +856,11 @@ namespace ArduinoBlockEditor
 
             if (result == MessageBoxResult.Yes)
             {
-                using (Py.GIL())
+                if (blockModel != null)
                 {
-                    if (pyModel != null)
-                    {
-                        pyModel.clear_all();
-                        pyModel.save_state();
-                        RefreshAll();
-                    }
+                    blockModel.ClearAll();
+                    blockModel.SaveState();
+                    RefreshAll();
                 }
             }
         }
@@ -955,7 +869,7 @@ namespace ArduinoBlockEditor
         private void OpenFile_Click(object sender, RoutedEventArgs e)
         {
             OpenFileDialog dlg = new OpenFileDialog { Filter = "JSON Files (*.json)|*.json" };
-            if (dlg.ShowDialog() == true && pyModel != null)
+            if (dlg.ShowDialog() == true && blockModel != null)
             {
                 MessageBoxResult result = MessageBox.Show(
                     "ファイルを開くと、現在ワークスペースにある編集内容は破棄されます。\n読み込んでもよろしいですか？",
@@ -966,21 +880,18 @@ namespace ArduinoBlockEditor
 
                 if (result == MessageBoxResult.Yes)
                 {
-                    using (Py.GIL())
-                    {
-                        pyModel.load_project_file(dlg.FileName);
-                        pyModel.save_state();
-                        RefreshAll();
-                    }
+                    blockModel.LoadProjectFile(dlg.FileName);
+                    blockModel.SaveState();
+                    RefreshAll();
                 }
             }
         }
         private void SaveFile_Click(object sender, RoutedEventArgs e)
         {
             SaveFileDialog dlg = new SaveFileDialog { Filter = "JSON Files (*.json)|*.json" };
-            if (dlg.ShowDialog() == true && pyModel != null)
+            if (dlg.ShowDialog() == true && blockModel != null)
             {
-                using (Py.GIL()) { pyModel.save_project_file(dlg.FileName); }
+                blockModel.SaveProjectFile(dlg.FileName);
             }
         }
         private void SaveFileAs_Click(object sender, RoutedEventArgs e) => SaveFile_Click(sender, e);
@@ -1004,24 +915,10 @@ namespace ArduinoBlockEditor
             }
         }
 
-        // ウィンドウが閉じた後のプロセス完全停止処理
+        // ウィンドウが閉じた後の処理
         private void Window_Closed(object sender, EventArgs e)
         {
-            try
-            {
-                if (PythonEngine.IsInitialized)
-                {
-                    PythonEngine.Shutdown();
-                }
-            }
-            catch
-            {
-                // 終了時のシャットダウンエラーは無視
-            }
-            finally
-            {
-                Environment.Exit(0); // バックグラウンドプロセスを完全に終了
-            }
+            // Python Engine のシャットダウン処理は不要になりました
         }
 
         private void CopyCode_Click(object sender, RoutedEventArgs e) => Clipboard.SetText(CodeTextBox.Text);
