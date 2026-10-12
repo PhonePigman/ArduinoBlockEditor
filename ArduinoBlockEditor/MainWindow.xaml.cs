@@ -23,14 +23,13 @@ namespace ArduinoBlockEditor
         private readonly List<JsonNode> draggingBlockGroup = new();
         private bool isPaletteDrag = false;
 
-        // ドラッグ元情報
         private string sourceSection = null;
+        private string sourceFunctionName = null;
         private int sourceIndex = -1;
         private JsonObject sourceSlotRef = null;
         private string sourceSlotKey = null;
         private string sourceSlotDefault = null;
 
-        // ドロップホバー（ハイライト）用変数
         private DropTarget lastHoverTarget = null;
         private readonly Border insertionIndicator = new Border
         {
@@ -43,6 +42,8 @@ namespace ArduinoBlockEditor
         private class DropTarget
         {
             public string Type { get; set; } = "";
+            public string Section { get; set; } = "";
+            public string FunctionName { get; set; } = "";
             public List<JsonNode> TargetList { get; set; } = null;
             public StackPanel ContainerPanel { get; set; } = null;
             public int CalculatedIndex { get; set; }
@@ -113,9 +114,6 @@ namespace ArduinoBlockEditor
             UpdateCode();
         }
 
-        // ==========================================
-        // ① パレット描画
-        // ==========================================
         private void RenderPalette()
         {
             if (blockModel == null) return;
@@ -166,6 +164,21 @@ namespace ArduinoBlockEditor
                             ""params"": [{{""key"": ""val"", ""label"": ""="", ""type"": ""slot"", ""default"": ""0""}}]
                         }}");
                         allCatBlocks.Add(varAssignConfig);
+                    }
+                }
+
+                if (cat == "関数")
+                {
+                    foreach (var func in blockModel.UserFunctions)
+                    {
+                        var funcCallConfig = JsonNode.Parse($@"{{
+                            ""name"": ""{func.Name} を実行"",
+                            ""category"": ""関数"",
+                            ""is_expression"": false,
+                            ""template"": ""{func.Name}(); "",
+                            ""params"": []
+                        }}");
+                        allCatBlocks.Add(funcCallConfig);
                     }
                 }
 
@@ -228,9 +241,6 @@ namespace ArduinoBlockEditor
             return border;
         }
 
-        // ==========================================
-        // ② ワークスペース描画
-        // ==========================================
         private void RenderWorkspace()
         {
             if (blockModel == null) return;
@@ -238,18 +248,145 @@ namespace ArduinoBlockEditor
             SetupContainer.Children.Clear();
             LoopContainer.Children.Clear();
             FuncContainer.Children.Clear();
+            FunctionsContainer.Children.Clear();
             activeDropTargets.Clear();
 
-            RenderSection(SetupContainer, blockModel.SetupBlocks, "setup");
-            RenderSection(LoopContainer, blockModel.LoopBlocks, "loop");
-            RenderSection(FuncContainer, blockModel.FuncBlocks, "func");
+            RenderSection(FuncContainer, blockModel.FuncBlocks, "func", null);
+            RenderSection(SetupContainer, blockModel.SetupBlocks, "setup", null);
+            RenderSection(LoopContainer, blockModel.LoopBlocks, "loop", null);
+
+            foreach (var func in blockModel.UserFunctions)
+            {
+                RenderUserFunctionBox(func);
+            }
         }
 
-        private void RenderSection(StackPanel container, List<JsonNode> blockList, string section)
+        private void RenderUserFunctionBox(UserFunction func)
+        {
+            Border wrapper = new Border
+            {
+                BorderBrush = GetCategoryBrush("関数"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(5),
+                Margin = new Thickness(0, 0, 0, 10),
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FDFAEB"))
+            };
+
+            DockPanel dp = new DockPanel();
+
+            Button delBtn = new Button
+            {
+                Content = "削除",
+                Background = Brushes.DarkRed,
+                Foreground = Brushes.White,
+                FontSize = 10,
+                Padding = new Thickness(6, 2, 6, 2),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            delBtn.Click += (s, e) =>
+            {
+                MessageBoxResult res = MessageBox.Show($"関数 '{func.Name}' を削除しますか？", "関数の削除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (res == MessageBoxResult.Yes)
+                {
+                    blockModel.RemoveUserFunction(func.Name);
+                    blockModel.SaveState();
+                    RefreshAll();
+                }
+            };
+            DockPanel.SetDock(delBtn, Dock.Right);
+            dp.Children.Add(delBtn);
+
+            TextBlock title = new TextBlock
+            {
+                Text = $"void {func.Name}(",
+                FontWeight = FontWeights.Bold,
+                Foreground = GetCategoryBrush("関数"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            dp.Children.Add(title);
+
+            StackPanel paramsContainer = new StackPanel
+            {
+                Margin = new Thickness(15, 2, 0, 2),
+                MinHeight = 10
+            };
+
+            activeDropTargets.Add(new DropTarget
+            {
+                Type = "line",
+                Section = "user_func_params",
+                FunctionName = func.Name,
+                TargetList = func.ParametersBlocks,
+                ContainerPanel = paramsContainer
+            });
+
+            int pIdx = 0;
+            foreach (var pBlock in func.ParametersBlocks)
+            {
+                int currentPIdx = pIdx;
+                Border pBlockUI = CreateWorkspaceBlockUI(pBlock, "user_func_params", currentPIdx, isNested: false, indentLevel: 0, funcName: func.Name);
+                paramsContainer.Children.Add(pBlockUI);
+                pIdx++;
+            }
+
+            StackPanel innerContainer = new StackPanel
+            {
+                Margin = new Thickness(15, 5, 0, 5),
+                MinHeight = 40
+            };
+
+            activeDropTargets.Add(new DropTarget
+            {
+                Type = "line",
+                Section = "user_func",
+                FunctionName = func.Name,
+                TargetList = func.Blocks,
+                ContainerPanel = innerContainer
+            });
+
+            int idx = 0;
+            int indentLevel = 0;
+            foreach (var block in func.Blocks)
+            {
+                int currentIndex = idx;
+                JsonNode config = block["config"];
+                string template = config?["template"]?.ToString().Trim() ?? "";
+                string name = config?["name"]?.ToString() ?? "";
+
+                if (template.StartsWith("}") || name.Contains("終わり") || name.Contains("そうでない"))
+                {
+                    indentLevel = Math.Max(0, indentLevel - 1);
+                }
+
+                Border blockUI = CreateWorkspaceBlockUI(block, "user_func", currentIndex, isNested: false, indentLevel: indentLevel, funcName: func.Name);
+                innerContainer.Children.Add(blockUI);
+
+                if (template.EndsWith("{"))
+                {
+                    indentLevel++;
+                }
+                idx++;
+            }
+
+            StackPanel outerSp = new StackPanel();
+            outerSp.Children.Add(dp);
+            outerSp.Children.Add(paramsContainer);
+            outerSp.Children.Add(new TextBlock { Text = ") {", FontWeight = FontWeights.Bold, Foreground = GetCategoryBrush("関数"), Margin = new Thickness(0, 2, 0, 0) });
+            outerSp.Children.Add(innerContainer);
+            outerSp.Children.Add(new TextBlock { Text = "}", FontWeight = FontWeights.Bold, Foreground = GetCategoryBrush("関数"), Margin = new Thickness(0, 2, 0, 0) });
+
+            wrapper.Child = outerSp;
+            FunctionsContainer.Children.Add(wrapper);
+        }
+
+        private void RenderSection(StackPanel container, List<JsonNode> blockList, string section, string funcName)
         {
             activeDropTargets.Add(new DropTarget
             {
                 Type = "line",
+                Section = section,
+                FunctionName = funcName,
                 TargetList = blockList,
                 ContainerPanel = container
             });
@@ -269,7 +406,7 @@ namespace ArduinoBlockEditor
                     indentLevel = Math.Max(0, indentLevel - 1);
                 }
 
-                Border blockUI = CreateWorkspaceBlockUI(block, section, currentIndex, isNested: false, indentLevel: indentLevel);
+                Border blockUI = CreateWorkspaceBlockUI(block, section, currentIndex, isNested: false, indentLevel: indentLevel, funcName: funcName);
                 container.Children.Add(blockUI);
 
                 if (template.EndsWith("{"))
@@ -281,7 +418,7 @@ namespace ArduinoBlockEditor
             }
         }
 
-        private Border CreateWorkspaceBlockUI(JsonNode block, string section, int idx, bool isNested = false, JsonObject slotRef = null, string slotKey = null, string defaultVal = null, int indentLevel = 0)
+        private Border CreateWorkspaceBlockUI(JsonNode block, string section, int idx, bool isNested = false, JsonObject slotRef = null, string slotKey = null, string defaultVal = null, int indentLevel = 0, string funcName = null)
         {
             JsonNode config = block["config"];
             JsonObject values = block["values"] as JsonObject ?? new JsonObject();
@@ -334,12 +471,13 @@ namespace ArduinoBlockEditor
                 else
                 {
                     sourceSection = section;
+                    sourceFunctionName = funcName;
                     sourceIndex = idx;
                     sourceSlotRef = null;
 
                     if (blockModel != null)
                     {
-                        List<JsonNode> srcList = GetSectionList(sourceSection);
+                        List<JsonNode> srcList = GetTargetList(sourceSection, sourceFunctionName);
                         for (int i = sourceIndex; i < srcList.Count; i++)
                         {
                             draggingBlockGroup.Add(srcList[i]);
@@ -447,7 +585,7 @@ namespace ArduinoBlockEditor
                             StackPanel slotContent = new StackPanel { Orientation = Orientation.Horizontal };
                             string defVal = p["default"]?.ToString() ?? "";
 
-                            Border childBlockUI = CreateWorkspaceBlockUI(valNode, section, idx, isNested: true, slotRef: values, slotKey: key, defaultVal: defVal);
+                            Border childBlockUI = CreateWorkspaceBlockUI(valNode, section, idx, isNested: true, slotRef: values, slotKey: key, defaultVal: defVal, funcName: funcName);
                             slotContent.Children.Add(childBlockUI);
 
                             Button clearBtn = new Button { Content = "✕", Background = Brushes.DarkRed, Foreground = Brushes.White, FontSize = 10, Width = 16, Height = 16, Margin = new Thickness(2, 0, 0, 0), Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
@@ -505,7 +643,7 @@ namespace ArduinoBlockEditor
                 {
                     if (blockModel != null)
                     {
-                        List<JsonNode> targetList = GetSectionList(section);
+                        List<JsonNode> targetList = GetTargetList(section, funcName);
                         targetList.RemoveAt(idx);
                         blockModel.SaveState();
                     }
@@ -526,15 +664,22 @@ namespace ArduinoBlockEditor
             return border;
         }
 
-        private List<JsonNode> GetSectionList(string section)
+        private List<JsonNode> GetTargetList(string section, string funcName)
         {
-            return section switch
+            if (section == "setup") return blockModel.SetupBlocks;
+            if (section == "loop") return blockModel.LoopBlocks;
+            if (section == "func") return blockModel.FuncBlocks;
+            if (section == "user_func")
             {
-                "setup" => blockModel.SetupBlocks,
-                "loop" => blockModel.LoopBlocks,
-                "func" => blockModel.FuncBlocks,
-                _ => null
-            };
+                var f = blockModel.UserFunctions.FirstOrDefault(x => x.Name == funcName);
+                if (f != null) return f.Blocks;
+            }
+            if (section == "user_func_params")
+            {
+                var f = blockModel.UserFunctions.FirstOrDefault(x => x.Name == funcName);
+                if (f != null) return f.ParametersBlocks;
+            }
+            return null;
         }
 
         private UIElement CreateBlockGroupPreviewUI(List<JsonNode> blocks)
@@ -562,9 +707,6 @@ namespace ArduinoBlockEditor
             return groupPanel;
         }
 
-        // ==========================================
-        // ③ ドラッグ＆ドロップ リアルタイム判定＆ハイライト
-        // ==========================================
         private void StartCustomDrag(UIElement element, MouseButtonEventArgs e)
         {
             draggingElement = element;
@@ -703,7 +845,7 @@ namespace ArduinoBlockEditor
             {
                 if (!isPaletteDrag && sourceSection != null && sourceIndex >= 0 && blockModel != null)
                 {
-                    List<JsonNode> srcList = GetSectionList(sourceSection);
+                    List<JsonNode> srcList = GetTargetList(sourceSection, sourceFunctionName);
                     int removeCount = draggingBlockGroup.Count;
                     for (int i = 0; i < removeCount; i++)
                     {
@@ -722,7 +864,7 @@ namespace ArduinoBlockEditor
                 {
                     if (!isPaletteDrag && sourceSection != null && sourceIndex >= 0 && blockModel != null)
                     {
-                        List<JsonNode> srcList = GetSectionList(sourceSection);
+                        List<JsonNode> srcList = GetTargetList(sourceSection, sourceFunctionName);
                         bool isSameSection = (target.Type == "line" && target.TargetList == srcList);
                         int targetIdx = target.CalculatedIndex;
                         int removeCount = draggingBlockGroup.Count;
@@ -776,6 +918,7 @@ namespace ArduinoBlockEditor
             draggingElement = null;
             draggingBlockGroup.Clear();
             sourceSection = null;
+            sourceFunctionName = null;
             sourceIndex = -1;
             sourceSlotRef = null;
             sourceSlotKey = null;
@@ -833,9 +976,6 @@ namespace ArduinoBlockEditor
             return null;
         }
 
-        // ==========================================
-        // ④ コード自動生成・イベントハンドラ
-        // ==========================================
         private void UpdateCode()
         {
             if (blockModel == null) return;
@@ -845,6 +985,142 @@ namespace ArduinoBlockEditor
         private void CatComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => RenderPalette();
         private void Undo_Click(object sender, RoutedEventArgs e) { if (blockModel != null && blockModel.Undo()) RefreshAll(); }
         private void Redo_Click(object sender, RoutedEventArgs e) { if (blockModel != null && blockModel.Redo()) RefreshAll(); }
+
+        private void AddFunctionMenu_Click(object sender, RoutedEventArgs e)
+        {
+            string funcName = Microsoft.VisualBasic.Interaction.InputBox(
+                "作成する関数の名前を入力してください（例: blinkLed）",
+                "新規関数の作成",
+                "myFunction"
+            );
+
+            if (!string.IsNullOrWhiteSpace(funcName))
+            {
+                bool success = blockModel.AddUserFunction(funcName.Trim());
+                if (!success)
+                {
+                    MessageBox.Show("その名前の関数はすでに存在するか、無効な名前です。", "エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                blockModel.SaveState();
+                RefreshAll();
+            }
+        }
+
+        private void EditFunctionsMenu_Click(object sender, RoutedEventArgs e)
+        {
+            // 関数の一覧及び編集ダイアログウィンドウ
+            Window dlg = new Window
+            {
+                Title = "関数の一覧及び編集",
+                Width = 420,
+                Height = 350,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize
+            };
+
+            // 確実な配置のため Grid を使用（行：ラベル、リスト、ボタン）
+            Grid mainGrid = new Grid
+            {
+                Margin = new Thickness(10)
+            };
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 0: ラベル
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 1: リストボックス
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 2: ボタン
+
+            // 0行目: ラベル
+            TextBlock label = new TextBlock
+            {
+                Text = "登録されているユーザー定義関数:",
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            Grid.SetRow(label, 0);
+            mainGrid.Children.Add(label);
+
+            // 1行目: リストボックス
+            ListBox funcListBox = new ListBox
+            {
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            Grid.SetRow(funcListBox, 1);
+            mainGrid.Children.Add(funcListBox);
+
+            void ReloadList()
+            {
+                funcListBox.Items.Clear();
+                if (blockModel != null)
+                {
+                    foreach (var f in blockModel.UserFunctions)
+                    {
+                        funcListBox.Items.Add(f.Name);
+                    }
+                }
+            }
+            ReloadList();
+
+            // 2行目: ボタンエリア（右寄せ）
+            StackPanel btnSp = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            Grid.SetRow(btnSp, 2);
+
+            Button renameBtn = new Button { Content = "名前を変更", Width = 90, Height = 28, Margin = new Thickness(0, 0, 5, 0) };
+            renameBtn.Click += (s, ev) =>
+            {
+                if (funcListBox.SelectedItem == null) return;
+                string oldName = funcListBox.SelectedItem.ToString();
+
+                string newName = Microsoft.VisualBasic.Interaction.InputBox(
+                    $"'{oldName}' の新しい名前を入力してください:",
+                    "関数名の変更",
+                    oldName
+                );
+
+                if (!string.IsNullOrWhiteSpace(newName))
+                {
+                    bool success = blockModel.RenameUserFunction(oldName, newName.Trim());
+                    if (!success)
+                    {
+                        MessageBox.Show("その名前はすでに存在するか、無効な名前です。", "エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                    blockModel.SaveState();
+                    ReloadList();
+                    RefreshAll();
+                }
+            };
+
+            Button removeBtn = new Button { Content = "削除", Width = 70, Height = 28, Margin = new Thickness(0, 0, 5, 0) };
+            removeBtn.Click += (s, ev) =>
+            {
+                if (funcListBox.SelectedItem == null) return;
+                string targetName = funcListBox.SelectedItem.ToString();
+
+                MessageBoxResult res = MessageBox.Show($"関数 '{targetName}' を削除しますか？", "関数の削除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (res == MessageBoxResult.Yes)
+                {
+                    blockModel.RemoveUserFunction(targetName);
+                    blockModel.SaveState();
+                    ReloadList();
+                    RefreshAll();
+                }
+            };
+
+            Button closeBtn = new Button { Content = "閉じる", Width = 70, Height = 28 };
+            closeBtn.Click += (s, ev) => dlg.Close();
+
+            btnSp.Children.Add(renameBtn);
+            btnSp.Children.Add(removeBtn);
+            btnSp.Children.Add(closeBtn);
+            mainGrid.Children.Add(btnSp);
+
+            dlg.Content = mainGrid;
+            dlg.ShowDialog();
+        }
         private void ClearAll_Click(object sender, RoutedEventArgs e)
         {
             MessageBoxResult result = MessageBox.Show(
@@ -896,10 +1172,8 @@ namespace ArduinoBlockEditor
         }
         private void SaveFileAs_Click(object sender, RoutedEventArgs e) => SaveFile_Click(sender, e);
 
-        // メニューの「終了」が押された時
         private void Exit_Click(object sender, RoutedEventArgs e) => Close();
 
-        // ウィンドウが閉じられる直前の確認ダイアログ処理
         private void Window_Closing(object sender, CancelEventArgs e)
         {
             MessageBoxResult result = MessageBox.Show(
@@ -911,15 +1185,11 @@ namespace ArduinoBlockEditor
 
             if (result == MessageBoxResult.No)
             {
-                e.Cancel = true; // 終了をキャンセル
+                e.Cancel = true;
             }
         }
 
-        // ウィンドウが閉じた後の処理
-        private void Window_Closed(object sender, EventArgs e)
-        {
-            // Python Engine のシャットダウン処理は不要になりました
-        }
+        private void Window_Closed(object sender, EventArgs e) { }
 
         private void CopyCode_Click(object sender, RoutedEventArgs e) => Clipboard.SetText(CodeTextBox.Text);
 

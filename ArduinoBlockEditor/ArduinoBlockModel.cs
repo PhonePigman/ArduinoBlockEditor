@@ -11,6 +11,16 @@ using System.Text.Json.Nodes;
 namespace ArduinoBlockEditor
 {
     /// <summary>
+    /// ユーザー定義関数のデータ構造
+    /// </summary>
+    public class UserFunction
+    {
+        public string Name { get; set; } = "";
+        public List<JsonNode> ParametersBlocks { get; set; } = new List<JsonNode>(); // 引数用ブロックリスト
+        public List<JsonNode> Blocks { get; set; } = new List<JsonNode>();          // 関数の中身のブロックリスト
+    }
+
+    /// <summary>
     /// データ構造の保持、ファイルの入出力、Undo/Redo、コード生成を行うロジッククラス
     /// </summary>
     public class ArduinoBlockModel
@@ -21,6 +31,7 @@ namespace ArduinoBlockEditor
             "制御構文",
             "演算・計算",
             "変数・代入",
+            "関数",
             "シリアル通信",
             "その他"
         };
@@ -32,6 +43,7 @@ namespace ArduinoBlockEditor
         public List<JsonNode> SetupBlocks { get; set; } = new List<JsonNode>();
         public List<JsonNode> LoopBlocks { get; set; } = new List<JsonNode>();
         public List<JsonNode> FuncBlocks { get; set; } = new List<JsonNode>();
+        public List<UserFunction> UserFunctions { get; set; } = new List<UserFunction>();
 
         private readonly List<string> undoStack = new List<string>();
         private readonly List<string> redoStack = new List<string>();
@@ -45,7 +57,6 @@ namespace ArduinoBlockEditor
         /// </summary>
         public (bool success, string errorMessage) LoadMods()
         {
-            // .NET Core / 5+ で Shift_JIS などのエンコーディングを有効化
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
             BlockConfigs.Clear();
@@ -107,6 +118,7 @@ namespace ArduinoBlockEditor
                 cats.Add(cat);
             }
             cats.Add("変数・代入");
+            cats.Add("関数");
 
             var sortedCats = cats.OrderBy(c =>
             {
@@ -120,6 +132,36 @@ namespace ArduinoBlockEditor
             return (true, string.Empty);
         }
 
+        public bool AddUserFunction(string funcName)
+        {
+            if (string.IsNullOrWhiteSpace(funcName)) return false;
+            if (UserFunctions.Any(f => f.Name == funcName)) return false;
+
+            UserFunctions.Add(new UserFunction { Name = funcName });
+            return true;
+        }
+
+        public void RemoveUserFunction(string funcName)
+        {
+            UserFunctions.RemoveAll(f => f.Name == funcName);
+        }
+
+        public bool RenameUserFunction(string oldName, string newName)
+        {
+            if (string.IsNullOrWhiteSpace(newName)) return false;
+            newName = newName.Trim();
+            if (oldName == newName) return true;
+            if (UserFunctions.Any(f => f.Name == newName)) return false;
+
+            var target = UserFunctions.FirstOrDefault(f => f.Name == oldName);
+            if (target != null)
+            {
+                target.Name = newName;
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>
         /// 現在のブロック配置状態をUndoスタックに保存
         /// </summary>
@@ -131,7 +173,8 @@ namespace ArduinoBlockEditor
             {
                 ["setup_blocks"] = JsonSerializer.SerializeToNode(SetupBlocks),
                 ["loop_blocks"] = JsonSerializer.SerializeToNode(LoopBlocks),
-                ["func_blocks"] = JsonSerializer.SerializeToNode(FuncBlocks)
+                ["func_blocks"] = JsonSerializer.SerializeToNode(FuncBlocks),
+                ["user_functions"] = JsonSerializer.SerializeToNode(UserFunctions)
             };
 
             string stateJson = stateNode.ToJsonString();
@@ -150,9 +193,6 @@ namespace ArduinoBlockEditor
             redoStack.Clear();
         }
 
-        /// <summary>
-        /// アンドゥ処理
-        /// </summary>
         public bool Undo()
         {
             if (undoStack.Count > 1)
@@ -171,9 +211,6 @@ namespace ArduinoBlockEditor
             return false;
         }
 
-        /// <summary>
-        /// リドゥ処理
-        /// </summary>
         public bool Redo()
         {
             if (redoStack.Count > 0)
@@ -197,22 +234,18 @@ namespace ArduinoBlockEditor
             SetupBlocks = JsonSerializer.Deserialize<List<JsonNode>>(node["setup_blocks"]) ?? new List<JsonNode>();
             LoopBlocks = JsonSerializer.Deserialize<List<JsonNode>>(node["loop_blocks"]) ?? new List<JsonNode>();
             FuncBlocks = JsonSerializer.Deserialize<List<JsonNode>>(node["func_blocks"]) ?? new List<JsonNode>();
+            UserFunctions = JsonSerializer.Deserialize<List<UserFunction>>(node["user_functions"]) ?? new List<UserFunction>();
         }
 
-        /// <summary>
-        /// クリア処理
-        /// </summary>
         public void ClearAll()
         {
             SetupBlocks.Clear();
             LoopBlocks.Clear();
             FuncBlocks.Clear();
+            UserFunctions.Clear();
             CurrentFilePath = null;
         }
 
-        /// <summary>
-        /// ブロック設定からデフォルト値を持つインスタンスデータを生成
-        /// </summary>
         public JsonObject CreateDefaultBlockData(JsonNode config)
         {
             var values = new JsonObject();
@@ -235,13 +268,14 @@ namespace ArduinoBlockEditor
             };
         }
 
-        /// <summary>
-        /// 宣言されている変数名の一覧を取得
-        /// </summary>
         public List<string> GetDeclaredVariables()
         {
             var varsList = new List<string>();
             var allBlocks = SetupBlocks.Concat(LoopBlocks).Concat(FuncBlocks);
+            foreach (var uf in UserFunctions)
+            {
+                allBlocks = allBlocks.Concat(uf.ParametersBlocks).Concat(uf.Blocks);
+            }
 
             void FindVarDefs(IEnumerable<JsonNode> blockList)
             {
@@ -277,9 +311,6 @@ namespace ArduinoBlockEditor
             return varsList;
         }
 
-        /// <summary>
-        /// プロジェクトファイルの読み込み
-        /// </summary>
         public bool LoadProjectFile(string filePath)
         {
             var text = File.ReadAllText(filePath, Encoding.UTF8);
@@ -290,22 +321,24 @@ namespace ArduinoBlockEditor
                 SetupBlocks = JsonSerializer.Deserialize<List<JsonNode>>(data["setup_blocks"]) ?? new List<JsonNode>();
                 LoopBlocks = JsonSerializer.Deserialize<List<JsonNode>>(data["loop_blocks"]) ?? new List<JsonNode>();
                 FuncBlocks = JsonSerializer.Deserialize<List<JsonNode>>(data["func_blocks"]) ?? new List<JsonNode>();
+                UserFunctions = data["user_functions"] != null
+                    ? JsonSerializer.Deserialize<List<UserFunction>>(data["user_functions"]) ?? new List<UserFunction>()
+                    : new List<UserFunction>();
+
                 CurrentFilePath = filePath;
                 return true;
             }
             return false;
         }
 
-        /// <summary>
-        /// プロジェクトファイルの保存
-        /// </summary>
         public void SaveProjectFile(string filePath)
         {
             var data = new JsonObject
             {
                 ["setup_blocks"] = JsonSerializer.SerializeToNode(SetupBlocks),
                 ["loop_blocks"] = JsonSerializer.SerializeToNode(LoopBlocks),
-                ["func_blocks"] = JsonSerializer.SerializeToNode(FuncBlocks)
+                ["func_blocks"] = JsonSerializer.SerializeToNode(FuncBlocks),
+                ["user_functions"] = JsonSerializer.SerializeToNode(UserFunctions)
             };
 
             var options = new JsonSerializerOptions { WriteIndented = true };
@@ -313,9 +346,6 @@ namespace ArduinoBlockEditor
             CurrentFilePath = filePath;
         }
 
-        /// <summary>
-        /// 単一ブロックからコード文字列を再帰的に生成
-        /// </summary>
         public string EvaluateBlockCode(JsonNode block)
         {
             string template = block["config"]?["template"]?.ToString() ?? "";
@@ -340,13 +370,11 @@ namespace ArduinoBlockEditor
             return template;
         }
 
-        /// <summary>
-        /// 全体からArduino用C++コードを生成
-        /// </summary>
         public string GenerateArduinoCode()
         {
             var codeLines = new List<string>();
 
+            // 1. グローバル領域 (func_blocks)
             if (FuncBlocks.Count > 0)
             {
                 int indentLevel = 0;
@@ -366,6 +394,7 @@ namespace ArduinoBlockEditor
                 codeLines.Add("\n");
             }
 
+            // 2. setup
             codeLines.Add("void setup() {");
             int setupIndent = 1;
             foreach (var block in SetupBlocks)
@@ -383,6 +412,7 @@ namespace ArduinoBlockEditor
             }
             codeLines.Add("}\n");
 
+            // 3. loop
             codeLines.Add("void loop() {");
             int loopIndent = 1;
             foreach (var block in LoopBlocks)
@@ -398,9 +428,43 @@ namespace ArduinoBlockEditor
                     loopIndent++;
                 }
             }
-            codeLines.Add("}");
+            codeLines.Add("}\n");
 
-            return string.Join("\n", codeLines);
+            // 4. ユーザー定義関数
+            foreach (var func in UserFunctions)
+            {
+                var paramCodes = new List<string>();
+                foreach (var pBlock in func.ParametersBlocks)
+                {
+                    string pCode = EvaluateBlockCode(pBlock).Trim();
+                    if (pCode.EndsWith(";")) pCode = pCode.Substring(0, pCode.Length - 1);
+                    if (!string.IsNullOrEmpty(pCode))
+                    {
+                        paramCodes.Add(pCode);
+                    }
+                }
+                string paramsStr = string.Join(", ", paramCodes);
+
+                codeLines.Add($"void {func.Name}({paramsStr}) {{");
+
+                int indentLevel = 1;
+                foreach (var block in func.Blocks)
+                {
+                    string line = EvaluateBlockCode(block);
+                    if (line.StartsWith("}"))
+                    {
+                        indentLevel = Math.Max(1, indentLevel - 1);
+                    }
+                    codeLines.Add(new string(' ', indentLevel * 2) + line);
+                    if (line.EndsWith("{"))
+                    {
+                        indentLevel++;
+                    }
+                }
+                codeLines.Add("}\n");
+            }
+
+            return string.Join("\n", codeLines).TrimEnd();
         }
     }
 }

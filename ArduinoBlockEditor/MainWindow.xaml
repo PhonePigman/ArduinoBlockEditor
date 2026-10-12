@@ -27,20 +27,19 @@
                 <Separator />
                 <MenuItem Header="すべて消去" Click="ClearAll_Click" />
             </MenuItem>
+            <MenuItem Header="関数(_U)">
+                <MenuItem Header="新規関数を追加..." Click="AddFunctionMenu_Click" />
+                <MenuItem Header="関数の一覧及び編集..." Click="EditFunctionsMenu_Click" />
+            </MenuItem>
         </Menu>
 
-        <!-- メイングリッド（幅調整機能付き） -->
+        <!-- メイングリッド -->
         <Grid>
             <Grid.ColumnDefinitions>
-                <!-- 0: ブロックパレット -->
                 <ColumnDefinition Width="260" MinWidth="150" />
-                <!-- 1: 分割スプリッター -->
                 <ColumnDefinition Width="Auto" />
-                <!-- 2: ワークスペース -->
                 <ColumnDefinition Width="*" MinWidth="300" />
-                <!-- 3: 分割スプリッター -->
                 <ColumnDefinition Width="Auto" />
-                <!-- 4: 生成コード -->
                 <ColumnDefinition Width="320" MinWidth="180" />
             </Grid.ColumnDefinitions>
 
@@ -58,32 +57,36 @@
                 </DockPanel>
             </Border>
 
-            <!-- 分割スプリッター 1 -->
             <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" Background="#E0E0E0" Cursor="SizeWE" />
 
             <!-- ② ワークスペース -->
             <Grid Grid.Column="2" Margin="5">
-                <!-- ブロック配置用スクロールエリア -->
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
+                        <!-- グローバル領域 -->
+                        <TextBlock Text="■ グローバル領域 (global scope)" FontWeight="Bold" Margin="0,2,0,2"/>
+                        <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Padding="5" MinHeight="80" Margin="0,0,0,10">
+                            <StackPanel x:Name="FuncContainer" />
+                        </Border>
+
+                        <!-- 初期化処理 (setup) -->
                         <TextBlock Text="■ 初期化処理 (setup)" FontWeight="Bold" Margin="0,2,0,2"/>
                         <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Padding="5" MinHeight="80" Margin="0,0,0,10">
                             <StackPanel x:Name="SetupContainer" />
                         </Border>
 
+                        <!-- 繰り返し処理 (loop) -->
                         <TextBlock Text="■ 繰り返し処理 (loop)" FontWeight="Bold" Margin="0,2,0,2"/>
                         <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Padding="5" MinHeight="150" Margin="0,0,0,10">
                             <StackPanel x:Name="LoopContainer" />
                         </Border>
 
-                        <TextBlock Text="■ グローバル領域 (global scope)" FontWeight="Bold" Margin="0,2,0,2"/>
-                        <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Padding="5" MinHeight="80">
-                            <StackPanel x:Name="FuncContainer" />
-                        </Border>
+                        <!-- ユーザー定義関数 -->
+                        <TextBlock Text="■ ユーザー定義関数" FontWeight="Bold" Margin="0,2,0,2"/>
+                        <StackPanel x:Name="FunctionsContainer" Margin="0,0,0,0" />
                     </StackPanel>
                 </ScrollViewer>
 
-                <!-- 右下に浮くゴミ箱 (フローティング表示) -->
                 <Border x:Name="TrashBorder" 
                         Background="#333333" 
                         CornerRadius="4" 
@@ -96,7 +99,6 @@
                 </Border>
             </Grid>
 
-            <!-- 分割スプリッター 2 -->
             <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Stretch" Background="#E0E0E0" Cursor="SizeWE" />
 
             <!-- ③ 生成コード表示 -->
@@ -116,7 +118,6 @@
                 </DockPanel>
             </Border>
 
-            <!-- ドラッグ追従用キャンバス -->
             <Canvas x:Name="DragCanvas" Grid.ColumnSpan="5" IsHitTestVisible="False" />
         </Grid>
     </DockPanel>
