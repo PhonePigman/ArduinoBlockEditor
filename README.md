@@ -14,7 +14,9 @@ WPFで作成された、Arduino向けの直感的なブロックプログラミ�
 ## 動作環境
 - **OS**: Windows 10 / 11 (64-bit)
 - **必須環境**: .NET 8.0 Desktop Runtime / **Arduino IDE**
-
+- ※XP~8.1等古いバージョンのWindowsを使用している場合はこちらのバージョンをご利用ください
+-https://github.com/PhonePigman/ArduinoBlockEditorXP.git
+ 
 ## ダウンロードと使い方
 
 ### 1. 準備と起動
